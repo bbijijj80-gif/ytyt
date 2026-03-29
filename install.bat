@@ -1,101 +1,117 @@
 @echo off
-chcp 65001 >nul
-setlocal enabledelayedexpansion
+chcp 65001 >nul 2>&1
+setlocal EnableDelayedExpansion
 
-:: Проверка прав администратора
+:: Check Admin Rights
 net session >nul 2>&1
 if %errorLevel% neq 0 (
-    echo =====================================================
-    echo   Windows 11 Security Hardener - Установка
-    echo =====================================================
-    echo.
-    echo ОШИБКА: Эта программа должна быть запущена от имени администратора
-    echo.
-    echo Щелкните правой кнопкой мыши на install.bat и выберите
-    echo "Запуск от имени администратора"
-    echo.
+    echo ================================================================
+    echo ERROR: Administrator rights required!
+    echo Right-click this file and select "Run as administrator"
+    echo ================================================================
     pause
     exit /b 1
 )
 
-echo =====================================================
-echo   Windows 11 Security Hardener - Установка
-echo =====================================================
+echo ================================================================
+echo   Windows 11 Security Hardener - Installation
+echo ================================================================
 echo.
-echo [1/6] Проверка прав администратора... OK
-echo.
+echo [1/6] Checking system requirements...
 
-:: Создание директорий
-echo [2/6] Создание директорий...
-set "INSTALL_DIR=C:\Program Files\WinSecHardener"
-set "LOG_DIR=C:\ProgramData\WinSecHardener"
-
-if not exist "%INSTALL_DIR%" (
-    mkdir "%INSTALL_DIR%"
-    echo   - Создана папка установки: %INSTALL_DIR%
+:: Check Python
+python --version >nul 2>&1
+if %errorLevel% neq 0 (
+    echo ERROR: Python not found. Please install Python 3.x from python.org
+    echo Make sure to check "Add Python to PATH" during installation.
+    pause
+    exit /b 1
 )
+echo [+] Python found.
 
-if not exist "%LOG_DIR%" (
-    mkdir "%LOG_DIR%"
-    echo   - Создана папка логов: %LOG_DIR%
+:: Change to script directory
+cd /d "%~dp0"
+
+:: Check source code
+if not exist "src\main.py" (
+    echo ERROR: src\main.py not found!
+    echo Ensure the src folder and main.py are next to install.bat
+    pause
+    exit /b 1
 )
-echo.
+echo [+] Source code found.
 
-:: Установка Python зависимостей
-echo [3/6] Установка зависимостей Python...
-cd /d "%~dp0src"
-if exist "requirements.txt" (
-    pip install -r requirements.txt --quiet
-    echo   - Зависимости установлены
-) else (
-    echo   - Файл requirements.txt не найден, пропускаем
-)
 echo.
-
-:: Компиляция в EXE
-echo [4/6] Компиляция программы в EXE...
+echo [2/6] Installing dependencies (PyInstaller)...
 pip install pyinstaller --quiet
-pyinstaller --onefile --windowed --name "WinSecHardener" --icon=NONE main.py --quiet
-if exist "dist\WinSecHardener.exe" (
-    copy /Y "dist\WinSecHardener.exe" "%INSTALL_DIR%" >nul
-    echo   - Программа скомпилирована и скопирована в %INSTALL_DIR%
-) else (
-    echo   - ОШИБКА: Не удалось создать EXE файл
-    echo   - Пробуем копировать исходный скрипт...
-    copy /Y "main.py" "%INSTALL_DIR%" >nul
+if %errorLevel% neq 0 (
+    echo ERROR: Failed to install PyInstaller. Check internet connection.
+    pause
+    exit /b 1
 )
+echo [+] PyInstaller installed.
+
 echo.
+echo [3/6] Compiling program to EXE...
+if exist "build" rmdir /s /q "build"
+if exist "dist" rmdir /s /q "dist"
 
-:: Настройка прав доступа (ACL)
-echo [5/6] Настройка прав доступа...
-icacls "%INSTALL_DIR%" /grant Administrators:F /inheritance:r >nul
-icacls "%INSTALL_DIR%" /grant Users:RX /inheritance:r >nul
-echo   - Доступ разрешен только администраторам
-echo.
-
-:: Создание ярлыка
-echo [6/6] Создание ярлыка на рабочем столе...
-set "DESKTOP=%USERPROFILE%\Desktop"
-powershell -Command "$WshShell = New-Object -ComObject WScript.Shell; $Shortcut = $WshShell.CreateShortcut('%DESKTOP%\WinSecHardener.lnk'); $Shortcut.TargetPath = '%INSTALL_DIR%\WinSecHardener.exe'; If (!(Test-Path '%INSTALL_DIR%\WinSecHardener.exe')) { $Shortcut.TargetPath = 'pythonw.exe'; $Shortcut.Arguments = '%INSTALL_DIR%\main.py' }; $Shortcut.WorkingDirectory = '%INSTALL_DIR%'; $Shortcut.Description = 'Windows 11 Security Hardener'; $Shortcut.Save()"
-
-if exist "%DESKTOP%\WinSecHardener.lnk" (
-    echo   - Ярлык создан на рабочем столе
-) else (
-    echo   - Предупреждение: Не удалось создать ярлык
+pyinstaller --onefile --windowed --name "WinSecHardener" --icon=NONE src/main.py
+if %errorLevel% neq 0 (
+    echo ERROR: Compilation failed. Check main.py for syntax errors.
+    pause
+    exit /b 1
 )
-echo.
 
-:: Завершение
-echo =====================================================
-echo   Установка завершена успешно!
-echo =====================================================
+if not exist "dist\WinSecHardener.exe" (
+    echo ERROR: WinSecHardener.exe was not created.
+    pause
+    exit /b 1
+)
+echo [+] Program compiled successfully.
+
 echo.
-echo Программа установлена в: %INSTALL_DIR%
-echo Ярлык создан на рабочем столе
+echo [4/6] Installing to system...
+set "INSTALL_DIR=C:\Program Files\WinSecHardener"
+
+if not exist "%INSTALL_DIR%" mkdir "%INSTALL_DIR%"
+
+copy /Y "dist\WinSecHardener.exe" "%INSTALL_DIR%\WinSecHardener.exe" >nul
+echo [+] File copied to %INSTALL_DIR%
+
 echo.
-echo ВАЖНО: Для запуска программы щелкните правой кнопкой
-echo мыши на ярлыке и выберите "Запуск от имени администратора"
+echo [5/6] Configuring access rights (ACL)...
+icacls "%INSTALL_DIR%" /grant Administrators:(OI)(CI)F /grant SYSTEM:(OI)(CI)F /inheritance:r >nul
+icacls "%INSTALL_DIR%\WinSecHardener.exe" /grant Administrators:F /grant SYSTEM:F /remove:g Users >nul
+echo [+] Access rights configured.
+
 echo.
-echo Логирование включено: %LOG_DIR%\audit.log
+echo [6/6] Creating desktop shortcut...
+set "DESKTOP_DIR=%USERPROFILE%\Desktop"
+powershell -Command "$WshShell = New-Object -ComObject WScript.Shell; $Shortcut = $WshShell.CreateShortcut('%DESKTOP_DIR%\WinSecHardener.lnk'); $Shortcut.TargetPath = '%INSTALL_DIR%\WinSecHardener.exe'; $Shortcut.WorkingDirectory = '%INSTALL_DIR%'; $Shortcut.Description = 'WinSecHardener (Admin Only)'; $Shortcut.Save()"
+
+if exist "%DESKTOP_DIR%\WinSecHardener.lnk" (
+    echo [+] Desktop shortcut created.
+) else (
+    echo [-] Failed to create shortcut automatically.
+    echo     You can create it manually from: %INSTALL_DIR%
+)
+
+:: Cleanup
+rmdir /s /q "build"
+rmdir /s /q "dist"
+
+echo.
+echo ================================================================
+echo   INSTALLATION COMPLETED SUCCESSFULLY!
+echo ================================================================
+echo.
+echo Installed to: %INSTALL_DIR%
+echo Shortcut created on Desktop.
+echo.
+echo IMPORTANT:
+echo - Run the program ONLY as Administrator.
+echo - Standard users cannot delete or modify this program.
+echo - To uninstall, delete the folder %INSTALL_DIR% (requires Admin).
 echo.
 pause
